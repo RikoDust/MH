@@ -16,7 +16,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span class="sidebar-title">Filtres</span>
-      <button class="sidebar-close" id="sidebarClose" aria-label="Fermer">✕</button>
+      <button class="sidebar-close" id="sidebarClose">✕</button>
     </div>
     <div class="filter-section">
       <div class="filter-label">Catégorie</div>
@@ -35,12 +35,12 @@
       <div class="filter-label">Couleur</div>
       <div class="filter-options">
         <button class="filter-chip active" data-filter="color" data-value="all">Toutes</button>
-        <button class="filter-chip color-chip" data-filter="color" data-value="vert" style="--chip-color:#22C55E">Vert</button>
-        <button class="filter-chip color-chip" data-filter="color" data-value="bleu" style="--chip-color:#3B82F6">Bleu</button>
-        <button class="filter-chip color-chip" data-filter="color" data-value="jaune" style="--chip-color:#EAB308">Jaune</button>
+        <button class="filter-chip color-chip" data-filter="color" data-value="vert"   style="--chip-color:#22C55E">Vert</button>
+        <button class="filter-chip color-chip" data-filter="color" data-value="bleu"   style="--chip-color:#3B82F6">Bleu</button>
+        <button class="filter-chip color-chip" data-filter="color" data-value="jaune"  style="--chip-color:#EAB308">Jaune</button>
         <button class="filter-chip color-chip" data-filter="color" data-value="orange" style="--chip-color:#F97316">Orange</button>
-        <button class="filter-chip color-chip" data-filter="color" data-value="rouge" style="--chip-color:#EF4444">Rouge</button>
-        <button class="filter-chip color-chip" data-filter="color" data-value="gris" style="--chip-color:#94A3B8">Gris</button>
+        <button class="filter-chip color-chip" data-filter="color" data-value="rouge"  style="--chip-color:#EF4444">Rouge</button>
+        <button class="filter-chip color-chip" data-filter="color" data-value="gris"   style="--chip-color:#94A3B8">Gris</button>
       </div>
     </div>
     <div class="filter-section">
@@ -57,33 +57,37 @@
   <div class="app-wrapper">
 
     <header class="app-header">
-      <button class="btn-menu" id="btnMenu" aria-label="Filtres">
+      <button class="btn-menu" id="btnMenu">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="2" y="5" width="16" height="1.8" rx="0.9" fill="currentColor"/>
-          <rect x="2" y="9.1" width="11" height="1.8" rx="0.9" fill="currentColor"/>
+          <rect x="2" y="5"    width="16" height="1.8" rx="0.9" fill="currentColor"/>
+          <rect x="2" y="9.1"  width="11" height="1.8" rx="0.9" fill="currentColor"/>
           <rect x="2" y="13.2" width="14" height="1.8" rx="0.9" fill="currentColor"/>
         </svg>
       </button>
       <h1 class="app-title">MyHabits</h1>
-      <button class="btn-add" id="btnAdd" aria-label="Ajouter une habitude">
+      <button class="btn-add" id="btnAdd">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <line x1="9" y1="2" x2="9" y2="16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-          <line x1="2" y1="9" x2="16" y2="9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="9" y1="2"  x2="9"  y2="16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="2" y1="9"  x2="16" y2="9"  stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
       </button>
     </header>
 
     <main class="main-content">
 
-      <!-- Dashboard -->
+      <!-- Dashboard 4 cases -->
       <section class="dashboard">
-        <div class="dash-card dash-done">
-          <span class="dash-count" id="dashDone">0</span>
-          <span class="dash-label">Validées</span>
+        <div class="dash-card dash-today">
+          <span class="dash-count" id="dashToday">0</span>
+          <span class="dash-label">À faire aujourd'hui</span>
         </div>
         <div class="dash-card dash-late">
           <span class="dash-count" id="dashLate">0</span>
           <span class="dash-label">En retard</span>
+        </div>
+        <div class="dash-card dash-active">
+          <span class="dash-count" id="dashActive">0</span>
+          <span class="dash-label">Séries en cours</span>
         </div>
         <div class="dash-card dash-total">
           <span class="dash-count" id="dashTotal">0</span>
@@ -91,13 +95,13 @@
         </div>
       </section>
 
-      <!-- Active filter badge -->
+      <!-- Filtre actif -->
       <div class="active-filter-bar" id="activeFilterBar" style="display:none">
         <span class="active-filter-text" id="activeFilterText"></span>
         <button class="clear-filter-btn" id="clearFilter">✕</button>
       </div>
 
-      <!-- Habitudes en retard -->
+      <!-- En retard -->
       <section class="habits-section" id="lateSection" style="display:none">
         <h2 class="section-title section-title--late">⚠ En retard</h2>
         <div class="habits-list" id="lateList"></div>
@@ -133,12 +137,12 @@
         <div class="form-group">
           <label class="form-label">Couleur</label>
           <div class="color-picker">
-            <button type="button" class="color-dot" data-color="vert"   style="background:#22C55E" title="Vert"></button>
-            <button type="button" class="color-dot" data-color="bleu"   style="background:#3B82F6" title="Bleu"></button>
-            <button type="button" class="color-dot" data-color="jaune"  style="background:#EAB308" title="Jaune"></button>
-            <button type="button" class="color-dot" data-color="orange" style="background:#F97316" title="Orange"></button>
-            <button type="button" class="color-dot" data-color="rouge"  style="background:#EF4444" title="Rouge"></button>
-            <button type="button" class="color-dot" data-color="gris"   style="background:#94A3B8" title="Gris"></button>
+            <button type="button" class="color-dot" data-color="vert"   style="background:#22C55E"></button>
+            <button type="button" class="color-dot" data-color="bleu"   style="background:#3B82F6"></button>
+            <button type="button" class="color-dot" data-color="jaune"  style="background:#EAB308"></button>
+            <button type="button" class="color-dot" data-color="orange" style="background:#F97316"></button>
+            <button type="button" class="color-dot" data-color="rouge"  style="background:#EF4444"></button>
+            <button type="button" class="color-dot" data-color="gris"   style="background:#94A3B8"></button>
           </div>
         </div>
         <div class="form-group">
@@ -196,16 +200,15 @@
           <span class="detail-key">Total réalisations</span>
           <span class="detail-value detail-count" id="detailCount">0</span>
         </div>
-        <!-- Séries -->
         <div class="detail-streaks">
           <div class="streak-box">
-            <span class="streak-value" id="detailStreakCurrent">0</span>
             <span class="streak-label">Série en cours</span>
+            <span class="streak-value" id="detailStreakCurrent">—</span>
           </div>
           <div class="streak-divider"></div>
           <div class="streak-box">
-            <span class="streak-value streak-value--max" id="detailStreakMax">0</span>
             <span class="streak-label">Série max</span>
+            <span class="streak-value streak-value--max" id="detailStreakMax">—</span>
           </div>
         </div>
       </div>
