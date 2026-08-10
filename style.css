@@ -326,6 +326,34 @@ body {
 }
 .btn-delete:hover { background: var(--red); color: #fff; }
 
+/* ── Day picker ── */
+.day-picker {
+  display: flex; gap: 8px;
+}
+.day-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--bg); color: var(--text-muted);
+  font-size: .8rem; font-weight: 700;
+  cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.day-btn:hover { border-color: var(--blue-light); color: var(--blue-primary); }
+.day-btn.active {
+  background: var(--blue-primary); border-color: var(--blue-primary);
+  color: #fff;
+}
+
+/* ── Habit days label ── */
+.habit-days {
+  font-size: .68rem; font-weight: 500;
+  color: var(--text-faint); letter-spacing: .03em;
+}
+
+
+
+
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

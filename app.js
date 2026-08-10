@@ -1,24 +1,16 @@
 'use strict';
 
-let habits = [];
+let habits   = [];
 let filters  = { category: 'all', color: 'all', sort: 'date' };
 let detailId = null;
 
 /* ════════════════════════════════════════
-   UTILITAIRES DATE  (jamais d'UTC)
+   UTILITAIRES DATE (local, jamais UTC)
 ════════════════════════════════════════ */
 
 function localToday() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function parseLocal(str) {
-  const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return dateToStr(d);
 }
 
 function dateToStr(d) {
@@ -28,93 +20,151 @@ function dateToStr(d) {
   return `${y}-${m}-${day}`;
 }
 
+function parseLocal(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function formatDisplay(str) {
   return parseLocal(str).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: 'short', year: 'numeric'
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric'
+  });
+}
+
+function formatShort(str) {
+  return parseLocal(str).toLocaleDateString('fr-FR', {
+    day: '2-digit', month: 'short'
   });
 }
 
 /* ════════════════════════════════════════
-   CALCUL DES OCCURRENCES
+   CALCUL DE LA PROCHAINE OCCURRENCE
+   days = tableau de numéros de jour (0=dim … 6=sam)
+   fromStr = date YYYY-MM-DD à partir de laquelle chercher (incluse)
 ════════════════════════════════════════ */
 
-function allPastOccurrences(habit) {
-  const todayStr = localToday();
-  const start    = parseLocal(habit.startDate);
-  const todayD   = parseLocal(todayStr);
+function nextOccurrenceDate(days, fromStr) {
+  if (!days || days.length === 0) return null;
+  const sorted = [...days].sort((a, b) => a - b);
+  const from   = parseLocal(fromStr);
 
-  if (start > todayD) return [];
-
-  const step  = habit.repeat;
-  const dates = [];
-  const cur   = new Date(start);
-
-  while (cur <= todayD) {
-    dates.push(dateToStr(cur));
-    cur.setDate(cur.getDate() + step);
+  for (let i = 0; i < 14; i++) {          // on cherche sur 2 semaines max
+    const d  = new Date(from);
+    d.setDate(d.getDate() + i);
+    const wd = d.getDay();                 // 0=dim … 6=sam
+    if (sorted.includes(wd)) return dateToStr(d);
   }
-  return dates;
-}
-
-function nextFutureOccurrence(habit) {
-  const todayStr = localToday();
-  const start    = parseLocal(habit.startDate);
-  const todayD   = parseLocal(todayStr);
-  const step     = habit.repeat;
-
-  if (start > todayD) return habit.startDate;
-
-  const diffDays = Math.round((todayD - start) / 86400000);
-  const passed   = Math.floor(diffDays / step);
-  const next     = new Date(start);
-  next.setDate(next.getDate() + (passed + 1) * step);
-  return dateToStr(next);
+  return null;
 }
 
 /* ════════════════════════════════════════
-   CLASSIFICATION
+   GESTION DES OCCURRENCES
 ════════════════════════════════════════ */
 
-function classify(habit) {
-  const todayStr = localToday();
-  const past     = allPastOccurrences(habit);
+/**
+ * Crée la première occurrence d'une habitude (au moment de sa création).
+ * fromStr = date de début choisie par l'utilisateur.
+ */
+function createFirstOccurrence(habit) {
+  const nextDate = nextOccurrenceDate(habit.days, habit.startDate);
+  if (nextDate) {
+    habit.occurrences = [{ date: nextDate, status: 'pending' }];
+  } else {
+    habit.occurrences = [];
+  }
+}
 
-  if (past.length === 0) return 'upcoming';
+/**
+ * Valide l'occurrence active (pending) d'une habitude,
+ * génère la suivante à partir du lendemain de la date validée,
+ * puis supprime les occurrences 'done'.
+ */
+function validateOccurrence(habit) {
+  const active = habit.occurrences.find(o => o.status === 'pending');
+  if (!active) return;
 
-  const last      = past[past.length - 1];
-  const validated = new Set(habit.validations || []);
+  // Marquer comme faite
+  active.status = 'done';
 
-  if (last === todayStr) {
-    // Occurrence aujourd'hui : validée → à venir, sinon → aujourd'hui
-    return validated.has(todayStr) ? 'upcoming' : 'today';
+  // Générer la prochaine occurrence à partir du jour suivant
+  const validatedDate = parseLocal(active.date);
+  const nextFrom      = new Date(validatedDate);
+  nextFrom.setDate(nextFrom.getDate() + 1);
+  const nextDate = nextOccurrenceDate(habit.days, dateToStr(nextFrom));
+
+  if (nextDate) {
+    habit.occurrences.push({ date: nextDate, status: 'pending' });
   }
 
-  // last < today
-  if (!validated.has(last)) return 'late';
+  // Nettoyer les occurrences 'done' (on ne garde que la pending)
+  habit.occurrences = habit.occurrences.filter(o => o.status === 'pending');
+}
 
-  // Validée mais date passée → on attend la prochaine
+/**
+ * Annule la validation : on revient à l'état précédent.
+ * On supprime l'occurrence pending actuelle et on remet
+ * la précédente (date validée) en pending.
+ */
+function unvalidateOccurrence(habit, pendingDate) {
+  // Supprimer l'occurrence pending générée après validation
+  habit.occurrences = habit.occurrences.filter(o => o.date !== pendingDate);
+  // Remettre l'occurrence précédente en pending
+  if (!habit.occurrences.find(o => o.status === 'pending')) {
+    // Retrouver la date précédente depuis l'historique
+    // (stocké dans lastValidated)
+    if (habit.lastValidated) {
+      habit.occurrences.push({ date: habit.lastValidated, status: 'pending' });
+      habit.lastValidated = null;
+    }
+  }
+}
+
+/* ════════════════════════════════════════
+   CLASSIFICATION D'UNE OCCURRENCE
+════════════════════════════════════════ */
+
+function classifyOccurrence(occ) {
+  if (!occ || occ.status !== 'pending') return null;
+  const todayStr = localToday();
+  if (occ.date === todayStr) return 'today';
+  if (occ.date < todayStr)  return 'late';
   return 'upcoming';
+}
+
+function getActiveOccurrence(habit) {
+  return habit.occurrences.find(o => o.status === 'pending') || null;
 }
 
 /* ════════════════════════════════════════
    CALCUL DES SÉRIES
+   On compte les occurrences validées consécutives dans l'historique.
 ════════════════════════════════════════ */
 
 function computeStreaks(habit) {
-  const past      = allPastOccurrences(habit);
-  const validated = new Set(habit.validations || []);
+  const history = (habit.history || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const active  = getActiveOccurrence(habit);
 
-  let maxStreak  = 0;
-  let tempStreak = 0;
-  for (const d of past) {
-    if (validated.has(d)) { tempStreak++; maxStreak = Math.max(maxStreak, tempStreak); }
-    else tempStreak = 0;
+  let maxStreak     = 0;
+  let tempStreak    = 0;
+  let currentStreak = 0;
+
+  // Série max sur tout l'historique (validations consécutives sans retard)
+  // On considère un break si le statut 'missed' est enregistré
+  for (const entry of history) {
+    if (entry.status === 'done') {
+      tempStreak++;
+      if (tempStreak > maxStreak) maxStreak = tempStreak;
+    } else {
+      tempStreak = 0;
+    }
   }
 
-  let currentStreak = 0;
-  if (classify(habit) !== 'late') {
-    for (let i = past.length - 1; i >= 0; i--) {
-      if (validated.has(past[i])) currentStreak++;
+  // Série en cours : on remonte depuis la fin
+  // Pas de série si l'occurrence active est en retard
+  const activeIsLate = active && classifyOccurrence(active) === 'late';
+  if (!activeIsLate) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].status === 'done') currentStreak++;
       else break;
     }
     if (currentStreak < 2) currentStreak = 0;
@@ -134,11 +184,12 @@ function updateDashboard() {
   const total     = habits.length;
 
   habits.forEach(h => {
-    const cl = classify(h);
+    const occ = getActiveOccurrence(h);
+    const cl  = classifyOccurrence(occ);
     if (cl === 'today') countToday++;
     if (cl === 'late')  countLate++;
     const { current } = computeStreaks(h);
-    if (current >= 2)   countActive++;
+    if (current >= 2) countActive++;
   });
 
   document.getElementById('dashToday').textContent  = countToday;
@@ -157,9 +208,15 @@ function applyFiltersAndSort(list) {
   if (filters.color    !== 'all') out = out.filter(h => h.color    === filters.color);
 
   if (filters.sort === 'date') {
-    out.sort((a, b) => a.startDate.localeCompare(b.startDate));
+    out.sort((a, b) => {
+      const oa = getActiveOccurrence(a);
+      const ob = getActiveOccurrence(b);
+      const da = oa ? oa.date : '9999';
+      const db = ob ? ob.date : '9999';
+      return da.localeCompare(db);
+    });
   } else if (filters.sort === 'mostDone') {
-    out.sort((a, b) => (b.validations || []).length - (a.validations || []).length);
+    out.sort((a, b) => (b.history || []).length - (a.history || []).length);
   } else if (filters.sort === 'name') {
     out.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   }
@@ -185,9 +242,9 @@ function render() {
   updateDashboard();
   updateFilterBar();
 
-  const lateH     = habits.filter(h => classify(h) === 'late');
-  const todayH    = habits.filter(h => classify(h) === 'today');
-  const upcomingH = habits.filter(h => classify(h) === 'upcoming');
+  const lateH     = habits.filter(h => classifyOccurrence(getActiveOccurrence(h)) === 'late');
+  const todayH    = habits.filter(h => classifyOccurrence(getActiveOccurrence(h)) === 'today');
+  const upcomingH = habits.filter(h => classifyOccurrence(getActiveOccurrence(h)) === 'upcoming');
 
   const lateList     = document.getElementById('lateList');
   const todayList    = document.getElementById('todayList');
@@ -199,13 +256,7 @@ function render() {
   upcomingList.innerHTML = '';
 
   /* — En retard — */
-  const filteredLate = applyFiltersAndSort(lateH)
-    .sort((a, b) => {
-      const pa = allPastOccurrences(a); const pb = allPastOccurrences(b);
-      const da = pa[pa.length - 1] || ''; const db = pb[pb.length - 1] || '';
-      return da.localeCompare(db);
-    });
-
+  const filteredLate = applyFiltersAndSort(lateH);
   lateSection.style.display = filteredLate.length ? 'flex' : 'none';
   filteredLate.forEach(h => lateList.appendChild(buildLateCard(h)));
 
@@ -218,12 +269,7 @@ function render() {
   }
 
   /* — À venir — */
-  const filteredUpcoming = applyFiltersAndSort(upcomingH).sort((a, b) => {
-    const todayStr = localToday();
-    const na = parseLocal(a.startDate) > parseLocal(todayStr) ? a.startDate : nextFutureOccurrence(a);
-    const nb = parseLocal(b.startDate) > parseLocal(todayStr) ? b.startDate : nextFutureOccurrence(b);
-    return na.localeCompare(nb);
-  });
+  const filteredUpcoming = applyFiltersAndSort(upcomingH);
   if (filteredUpcoming.length === 0) {
     upcomingList.innerHTML = '<div class="empty-state"><span>Aucune habitude à venir</span></div>';
   } else {
@@ -241,10 +287,13 @@ function escHtml(str) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function daysLabel(days) {
+  const LABELS = ['D','L','M','M','J','V','S'];
+  return (days || []).map(d => LABELS[d]).join(' · ');
+}
+
 function buildTodayCard(habit) {
-  const todayStr  = localToday();
-  const validated = (habit.validations || []).includes(todayStr);
-  const card      = document.createElement('div');
+  const card = document.createElement('div');
   card.className  = 'habit-card';
   card.dataset.id = habit.id;
   card.innerHTML  = `
@@ -253,26 +302,23 @@ function buildTodayCard(habit) {
       <div class="habit-name">${escHtml(habit.name)}</div>
       <div class="habit-meta">
         <span class="habit-tag">${escHtml(habit.category)}</span>
-        Tous les ${habit.repeat} j.
+        <span class="habit-days">${daysLabel(habit.days)}</span>
       </div>
     </div>
     <div class="habit-actions">
-      <button class="btn-validate ${validated ? 'validated' : ''}" data-id="${habit.id}">
-        ${validated ? '✓ Fait' : 'Valider'}
-      </button>
+      <button class="btn-validate" data-id="${habit.id}">Valider</button>
     </div>`;
   card.addEventListener('click', e => { if (!e.target.closest('.btn-validate')) openDetail(habit.id); });
   card.querySelector('.btn-validate').addEventListener('click', e => {
-    e.stopPropagation(); toggleValidation(habit.id);
+    e.stopPropagation();
+    doValidate(habit.id);
   });
   return card;
 }
 
 function buildLateCard(habit) {
-  const past      = allPastOccurrences(habit);
-  const last      = past[past.length - 1];
-  const validated = (habit.validations || []).includes(last);
-  const card      = document.createElement('div');
+  const occ  = getActiveOccurrence(habit);
+  const card = document.createElement('div');
   card.className  = 'habit-card habit-card--late';
   card.dataset.id = habit.id;
   card.innerHTML  = `
@@ -281,28 +327,24 @@ function buildLateCard(habit) {
       <div class="habit-name">${escHtml(habit.name)}</div>
       <div class="habit-meta">
         <span class="habit-tag">${escHtml(habit.category)}</span>
-        Tous les ${habit.repeat} j.
+        <span class="habit-days">${daysLabel(habit.days)}</span>
       </div>
-      <div class="habit-late-date">Attendu le ${formatDisplay(last)}</div>
+      <div class="habit-late-date">Attendu le ${formatDisplay(occ.date)}</div>
     </div>
     <div class="habit-actions">
-      <button class="btn-validate ${validated ? 'validated' : 'btn-validate--late'}" data-id="${habit.id}">
-        ${validated ? '✓ Fait' : 'Valider'}
-      </button>
+      <button class="btn-validate btn-validate--late" data-id="${habit.id}">Valider</button>
     </div>`;
   card.addEventListener('click', e => { if (!e.target.closest('.btn-validate')) openDetail(habit.id); });
   card.querySelector('.btn-validate').addEventListener('click', e => {
-    e.stopPropagation(); toggleValidationLate(habit.id);
+    e.stopPropagation();
+    doValidate(habit.id);
   });
   return card;
 }
 
 function buildUpcomingCard(habit) {
-  const todayStr = localToday();
-  const nextDate = parseLocal(habit.startDate) > parseLocal(todayStr)
-    ? habit.startDate
-    : nextFutureOccurrence(habit);
-  const card      = document.createElement('div');
+  const occ  = getActiveOccurrence(habit);
+  const card = document.createElement('div');
   card.className  = 'habit-card';
   card.dataset.id = habit.id;
   card.innerHTML  = `
@@ -311,10 +353,10 @@ function buildUpcomingCard(habit) {
       <div class="habit-name">${escHtml(habit.name)}</div>
       <div class="habit-meta">
         <span class="habit-tag">${escHtml(habit.category)}</span>
-        Tous les ${habit.repeat} j.
+        <span class="habit-days">${daysLabel(habit.days)}</span>
       </div>
     </div>
-    <div class="habit-next-date">${formatDisplay(nextDate)}</div>`;
+    <div class="habit-next-date">${occ ? formatShort(occ.date) : '—'}</div>`;
   card.addEventListener('click', () => openDetail(habit.id));
   return card;
 }
@@ -323,28 +365,19 @@ function buildUpcomingCard(habit) {
    VALIDATION
 ════════════════════════════════════════ */
 
-function toggleValidation(id) {
-  const habit    = habits.find(h => h.id === id);
+function doValidate(id) {
+  const habit  = habits.find(h => h.id === id);
   if (!habit) return;
-  const todayStr = localToday();
-  habit.validations = habit.validations || [];
-  const idx = habit.validations.indexOf(todayStr);
-  if (idx === -1) habit.validations.push(todayStr);
-  else            habit.validations.splice(idx, 1);
-  save();
-  render();
-}
+  const active = getActiveOccurrence(habit);
+  if (!active) return;
 
-function toggleValidationLate(id) {
-  const habit = habits.find(h => h.id === id);
-  if (!habit) return;
-  const past  = allPastOccurrences(habit);
-  const last  = past[past.length - 1];
-  if (!last)  return;
-  habit.validations = habit.validations || [];
-  const idx = habit.validations.indexOf(last);
-  if (idx === -1) habit.validations.push(last);
-  else            habit.validations.splice(idx, 1);
+  // Archiver dans l'historique
+  habit.history = habit.history || [];
+  habit.history.push({ date: active.date, status: 'done' });
+
+  // Valider et générer la suivante
+  validateOccurrence(habit);
+
   save();
   render();
 }
@@ -353,9 +386,9 @@ function toggleValidationLate(id) {
    PERSISTANCE
 ════════════════════════════════════════ */
 
-function save() { localStorage.setItem('myhabits_v1', JSON.stringify(habits)); }
+function save() { localStorage.setItem('myhabits_v2', JSON.stringify(habits)); }
 function load() {
-  try { habits = JSON.parse(localStorage.getItem('myhabits_v1')) || []; }
+  try { habits = JSON.parse(localStorage.getItem('myhabits_v2')) || []; }
   catch { habits = []; }
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
@@ -367,11 +400,14 @@ function genId() { return Date.now().toString(36) + Math.random().toString(36).s
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
+/* — Ajout — */
 function openAddModal() {
   document.getElementById('modalTitle').textContent = 'Nouvelle habitude';
   document.getElementById('habitForm').reset();
   document.getElementById('habitStart').value = localToday();
   selectColor('bleu');
+  // Décocher tous les jours
+  document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('active'));
   openModal('modalOverlay');
 }
 
@@ -387,15 +423,42 @@ document.querySelectorAll('.color-dot').forEach(dot => {
   dot.addEventListener('click', () => selectColor(dot.dataset.color));
 });
 
+/* — Jours de la semaine — */
+document.querySelectorAll('.day-btn').forEach(btn => {
+  btn.addEventListener('click', () => btn.classList.toggle('active'));
+});
+
+function getSelectedDays() {
+  return [...document.querySelectorAll('.day-btn.active')]
+    .map(b => parseInt(b.dataset.day, 10));
+}
+
 /* — Formulaire — */
 document.getElementById('habitForm').addEventListener('submit', e => {
   e.preventDefault();
   const name     = document.getElementById('habitName').value.trim();
   const category = document.getElementById('habitCategory').value;
   const start    = document.getElementById('habitStart').value;
-  const repeat   = parseInt(document.getElementById('habitRepeat').value, 10) || 1;
-  if (!name || !start) return;
-  habits.push({ id: genId(), name, color: selectedColor, category, startDate: start, repeat, validations: [] });
+  const days     = getSelectedDays();
+
+  if (!name || !start || days.length === 0) {
+    alert('Merci de renseigner un nom, une date de début et au moins un jour de répétition.');
+    return;
+  }
+
+  const habit = {
+    id: genId(),
+    name,
+    color:     selectedColor,
+    category,
+    startDate: start,
+    days,
+    occurrences: [],
+    history:     [],
+  };
+
+  createFirstOccurrence(habit);
+  habits.push(habit);
   save();
   closeModal('modalOverlay');
   render();
@@ -413,14 +476,31 @@ function openDetail(id) {
   const habit = habits.find(h => h.id === id);
   if (!habit) return;
   detailId = id;
+
   const streaks = computeStreaks(habit);
+  const occ     = getActiveOccurrence(habit);
+  const cl      = classifyOccurrence(occ);
+
+  const DAY_NAMES = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  const daysStr   = (habit.days || []).map(d => DAY_NAMES[d]).join(', ');
+
   document.getElementById('detailName').textContent          = habit.name;
   document.getElementById('detailCategory').textContent      = habit.category;
   document.getElementById('detailStart').textContent         = formatDisplay(habit.startDate);
-  document.getElementById('detailRepeat').textContent        = `Tous les ${habit.repeat} jour${habit.repeat > 1 ? 's' : ''}`;
-  document.getElementById('detailCount').textContent         = (habit.validations || []).length;
+  document.getElementById('detailRepeat').textContent        = daysStr;
+  document.getElementById('detailCount').textContent         = (habit.history || []).filter(h => h.status === 'done').length;
   document.getElementById('detailStreakCurrent').textContent = streaks.current >= 2 ? `${streaks.current} répétitions` : '—';
   document.getElementById('detailStreakMax').textContent     = streaks.max >= 2     ? `${streaks.max} répétitions`     : '—';
+
+  // Prochaine occurrence
+  const nextEl = document.getElementById('detailNext');
+  if (nextEl) {
+    if (occ && cl === 'upcoming') nextEl.textContent = formatDisplay(occ.date);
+    else if (occ && cl === 'today') nextEl.textContent = 'Aujourd\'hui';
+    else if (occ && cl === 'late') nextEl.textContent  = `En retard — ${formatDisplay(occ.date)}`;
+    else nextEl.textContent = '—';
+  }
+
   openModal('detailOverlay');
 }
 
